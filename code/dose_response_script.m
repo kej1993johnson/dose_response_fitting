@@ -27,33 +27,46 @@ close all; clear all; clc
 
 % load in dataset (this one is just dose in 1st column, viability in 2nd
 % column
-data = xlsread('../data/dose_response_example.xls');
+data = xlsread('../data/dose_response_stiff.xls');
 % you will have to change this part depending on how your data is set up in
 % excel
 dose = data(:,1);
 viability = data(:,2);
-
+stiffness = data(:,3);
+uniqstiff = unique(stiffness);
+Vmaxall = [];
 % make a vector the length of your data of the mean viability at dose =0
-ind = find(dose == 0);
-Vmax = viability(ind); % finds the viability only where dose =0
-nreps = length(Vmax); % finds the number of replicates of dose response by 
-                       % (by counting how many times dose =0)
-ndose=12; % tell it the number of doses you used 
-Vmaxmean= mean(Vmax); % find mean of the viabilities
+for i = 1:length(uniqstiff)
+    ind = find(stiffness==uniqstiff(i));
+    i0 = find(dose(ind) == 0);
+    V= viability(ind);
+    Vmax = V(i0); % finds the viability only where dose =0
+    n = length(V);
+    Vmaxmean(i)= mean(Vmax); % find mean of the viabilities
 % note that when doing multiple conditions, we will want to make sure that
 % the Vmax changes for each condition, which is why we make the vector
 % below
-Vmaxall = repmat(Vmaxmean, ndose.*nreps,1);  % makes vector of Vmaxmean at each dose
+    Vmaxvec = repmat(Vmaxmean(i), n,1);  % makes vector of Vmaxmean at each dose
 % for different conditions, the value of Vmaxall will change to be the one
 % corresponding to that condition.
+Vmaxall = vertcat(Vmaxall, Vmaxvec);
+end
 
 
 %% Plot raw data
 figure;
-plot(dose, viability, 'o', 'LineWidth',2)
+for i = 1:length(uniqstiff)
+    ind = stiffness== uniqstiff(i);
+    plot(dose(ind), viability(ind), 'o', 'LineWidth',2)
+    hold on
+    %legend(['Stiffness= ', num2str(uniqstiff(i))])
+end
 xlabel('dose (\muM)')
 ylabel('Viability')
 title('Dose Response Raw Data')
+legend(['Stiffness= ', num2str(uniqstiff(1)),' Pa'], ['Stiffness= ', num2str(uniqstiff(2)),' Pa'], ['Stiffness= ', num2str(uniqstiff(3)),' Pa'])
+legend boxoff
+
 
 
 %% Use lsqnonlin to perform fitting
@@ -66,39 +79,51 @@ options = optimset('Display','off','FunValCheck','on', ...
 params0 = [0.01 180];
 LB = [0 0];
 UB = [ 1 Inf];
+uniqstiff = unique(stiffness);
 
-
+for i = 1:length(uniqstiff)
+    ind = stiffness== uniqstiff(i);
 [P_fit, resnorm, residuals] = lsqnonlin(@fitsinglepop,...
     params0,...
     LB,...
     UB,...
     options,...
-    dose,...
-    viability,...
-    Vmaxall);
+    dose(ind),...
+    viability(ind),...
+    Vmaxall(ind));
 % LSQNONLIN takes the function that outputs the error vector and gives it
 % the initial guess, bounds, options, and other inputs of fit singlepop(in
 % this case it is dose, viability (from data) and the Vmaxall vector, but
 % their could be others)
 
 % best fit parameters
-m_fit= P_fit(1); 
-LD50_fit = P_fit(2);
+m_fit(i)= P_fit(1); 
+LD50_fit(i) = P_fit(2);
 
 % Plug parameters back into model
-Vmodel = Vmaxall./(1+exp(m_fit.*(dose-LD50_fit)));
+Vmodel = Vmaxall(ind)./(1+exp(m_fit(i).*(dose(ind)-LD50_fit(i))));
 % for plotting (don't make doses repeat)
 dmod = 0:20:max(dose);
-V = Vmaxmean./(1+exp(m_fit.*(dmod-LD50_fit)));
-
+V = Vmaxmean(i)./(1+exp(m_fit(i).*(dmod-LD50_fit(i))));
+end
+colors = {'b', 'g', 'r'};
 figure;
-plot(dose, viability, 'ro', 'LineWidth',2)
+for i = 1:length(uniqstiff)
+ind = stiffness== uniqstiff(i);
+% Plug parameters back into model
+Vmodel = Vmaxall(ind)./(1+exp(m_fit(i).*(dose(ind)-LD50_fit(i))));
+% for plotting (don't make doses repeat)
+dmod = 0:20:max(dose);
+V = Vmaxmean(i)./(1+exp(m_fit(i).*(dmod-LD50_fit(i))));
+plot(dose(ind), viability(ind), 'o','color', colors{i}, 'LineWidth',2)
 hold on
-plot(dmod, V, 'b-', 'LineWidth',2)
+plot(dmod, V, '-','color', colors{i}, 'LineWidth',2)
 xlabel('dose (\muM)')
-ylabel('Viability')
-title('Dose Response Data and Model Fit')
-
+ylabel('viability')
+title('Dose response data and sigmoid fit')
+end
+legend ('data 5 mM', 'fit 5 mM , LD50 = 38.7 uM', 'data 20 mM', 'fit 20 mM LD50 = 45.4 uM', 'data 25 mM', 'fit 25 mM LD50 = 33.1 uM ')
+legend boxoff
 %% How to find error bars using boot strapping method of replacement
 
 % give the function the residuals from lsqnonlin, the model fit to the
